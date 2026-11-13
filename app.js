@@ -34,7 +34,8 @@
   }
 
   // Normalise entries: clamp 同行者, drop unknown slots, de-dupe ids. A whole party shares one slot.
-  // (One-entry-per-email is enforced by the backend, which never exposes emails.)
+  // (One-entry-per-person is enforced by the backend, which never exposes emails: it treats Gmail
+  //  +tag/dot variants as one address and serves only the latest entry per person.)
   // Keep cleanEntries() and runDraw()'s core identical to backend/Code.gs.
   function cleanEntries(raw) {
     const byId = new Map();
@@ -46,6 +47,16 @@
       byId.set(e.id, { id: e.id, name: String(e.name), companions, choices, submittedAt: e.submittedAt });
     }
     return [...byId.values()];
+  }
+
+  // Same rule as emailKey_() in backend/Code.gs: Gmail ignores dots and +tags.
+  function emailKey(email) {
+    const e = String(email || '').trim().toLowerCase();
+    const at = e.lastIndexOf('@');
+    if (at < 1) return e;
+    let local = e.slice(0, at), domain = e.slice(at + 1);
+    if (domain === 'gmail.com' || domain === 'googlemail.com') { local = local.split('+')[0].replace(/\./g, ''); domain = 'gmail.com'; }
+    return local + '@' + domain;
   }
 
   /* ---------------- deterministic lottery ---------------- */
@@ -327,7 +338,7 @@
       if (!c.name) return (err.textContent = `同行者${i + 1}のお名前を入力してください。`);
       if (!EMAIL.test(c.email)) return (err.textContent = `同行者${i + 1}のメールアドレスを正しく入力してください。`);
     }
-    const allEmails = [email, ...companions.map((c) => c.email)].map((x) => x.toLowerCase());
+    const allEmails = [email, ...companions.map((c) => c.email)].map(emailKey);
     if (new Set(allEmails).size !== allEmails.length) return (err.textContent = '同じメールアドレスが重複しています。同行者はそれぞれ別のアドレスを入力してください。');
     if (!choices[0]) return (err.textContent = '第1希望を選択してください。');
     const picked = choices.filter(Boolean);

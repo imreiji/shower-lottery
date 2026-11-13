@@ -59,8 +59,10 @@ function apply_(b) {
     if (!c.name) return { ok: false, error: '同行者のお名前を入力してください' };
     if (!EMAIL.test(c.email) || c.email.length > 120) return { ok: false, error: `同行者（${c.name}）のメールアドレスが正しくありません` };
   }
+  // Duplicate checks compare normalized keys (Gmail +tags and dots ignored); mail still goes to the address as typed.
   const party = [email, ...companions.map((c) => c.email)];
-  if (new Set(party).size !== party.length) return { ok: false, error: '同じメールアドレスが重複しています' };
+  const partyKeys = party.map(emailKey_);
+  if (new Set(partyKeys).size !== partyKeys.length) return { ok: false, error: '同じメールアドレスが重複しています' };
 
   const slots = expandSlots(cfg.schedule);
   const slotById = Object.fromEntries(slots.map((s) => [s.id, s]));
@@ -72,21 +74,21 @@ function apply_(b) {
   const rows = sh.getDataRange().getValues();
   const used = new Set(rows.slice(1).map((r) => r[0]));
   // The same 代表者 re-applying replaces their entry; anyone else already in an active entry is a conflict.
+  const myKey = partyKeys[0];
   const toReplace = [];
   for (let i = 1; i < rows.length; i++) {
     if (rows[i][5] !== 'active') continue;
-    const rowApplicant = String(rows[i][2]).toLowerCase();
-    if (rowApplicant === email) { toReplace.push(i + 1); continue; }
-    const rowParty = [rowApplicant, ...JSON.parse(rows[i][6] || '[]').map((c) => String(c.email).toLowerCase())];
-    const clash = party.find((p) => rowParty.includes(p));
-    if (clash) return { ok: false, error: `${clash} は既に別の申込み（${rows[i][1]} さま）に含まれています` };
+    if (emailKey_(rows[i][2]) === myKey) { toReplace.push(i + 1); continue; }
+    const rowKeys = [rows[i][2], ...JSON.parse(rows[i][6] || '[]').map((c) => c.email)].map(emailKey_);
+    const at = partyKeys.findIndex((k) => rowKeys.includes(k));
+    if (at !== -1) return { ok: false, error: `${party[at]} は既に別の申込み（${rows[i][1]} さま）に含まれています` };
   }
   toReplace.forEach((r) => sh.getRange(r, 6).setValue('replaced'));
   const replaced = toReplace.length > 0;
 
   let id;
   do { id = newId_(); } while (used.has(id));
-  sh.appendRow([id, name, email, JSON.stringify(choices), now.toISOString(), 'active', JSON.stringify(companions)]);
+  sh.appendRow([id, safeCell_(name), safeCell_(email), JSON.stringify(choices), now.toISOString(), 'active', JSON.stringify(companions)]);
 
   const entry = { id, name, choices, companions: companions.map((c) => c.name) };
   const mine = mailApplicant_(cfg, entry, slotById, replaced);
@@ -426,12 +428,52 @@ function sheet_() {
 }
 
 function activeRows_() {
-  return sheet_().getDataRange().getValues().slice(1)
+  const rows = sheet_().getDataRange().getValues().slice(1)
     .filter((r) => r[5] === 'active')
     .map((r) => {
       const companionsFull = JSON.parse(r[6] || '[]');
-      return { id: r[0], name: r[1], email: r[2], choices: JSON.parse(r[3] || '[]'), submittedAt: r[4], companions: companionsFull.map((c) => c.name), companionsFull };
+      return { id: r[0], name: String(r[1]), email: String(r[2]), choices: JSON.parse(r[3] || '[]'), submittedAt: r[4], companions: companionsFull.map((c) => String(c.name)), companionsFull };
     });
+  return collapseDuplicates_(rows);
+}
+
+/**
+ * Replays the sheet's active rows in the order they were added, applying apply_()'s rules with
+ * normalized emails: a later entry from the same 代表者 replaces the earlier one, and a later entry
+ * whose party overlaps someone else's existing entry is dropped. Rows saved before emails were
+ * normalized (e.g. foo+1@gmail.com and foo+2@gmail.com) collapse to the latest one.
+ * The sheet itself is never changed. Both the website and the result emails read this list,
+ * so their draws stay identical.
+ */
+function collapseDuplicates_(rows) {
+  let kept = [];
+  for (const r of rows) {
+    const keys = [r.email, ...r.companionsFull.map((c) => c.email)].map(emailKey_);
+    const others = kept.filter((k) => k.keys[0] !== keys[0]);
+    if (others.some((k) => k.keys.some((x) => keys.includes(x)))) continue;
+    kept = [...others, { row: r, keys }];
+  }
+  return kept.map((k) => k.row);
+}
+
+/** Key used to tell whether two addresses are the same person. Gmail ignores dots and +tags. */
+function emailKey_(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const at = e.lastIndexOf('@');
+  if (at < 1) return e;
+  let local = e.slice(0, at);
+  let domain = e.slice(at + 1);
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    local = local.split('+')[0].replace(/\./g, '');
+    domain = 'gmail.com';
+  }
+  return local + '@' + domain;
+}
+
+/** Stops the Sheet from treating text that starts like a formula (=, +, -, @) as one. */
+function safeCell_(v) {
+  const s = String(v);
+  return /^[=+\-@]/.test(s) ? "'" + s : s;
 }
 
 function publicEntries_() {

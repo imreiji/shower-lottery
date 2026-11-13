@@ -35,7 +35,7 @@ If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, o
 ### What happens
 | When | What |
 |---|---|
-| Apply | The entry is saved to the Sheet and a confirmation email is sent with the 受付番号 and chosen slots. Re-applying with the same email replaces the old entry. |
+| Apply | The entry is saved to the Sheet and a confirmation email is sent with the 受付番号 and chosen slots. Re-applying with the same email replaces the old entry. Gmail addresses count as one person however they're written (`a.b+x@gmail.com` = `ab@gmail.com`). |
 | `drawAt` | `sendResults` runs: the same draw as the website, then a 当選 or 落選 email to each applicant. Each person is emailed only once; rerunning is safe. |
 | Anytime | The site shows the public list (name, slots, 受付番号). **Emails are never exposed.** |
 
@@ -46,7 +46,7 @@ If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, o
 - The 代表者 (applicant) can add up to `maxCompanions` companions (default 3, so groups of up to 4). Each needs a name and email.
 - **The whole group shares the one slot it wins.** Slot `capacity` counts groups, not people: `capacity: 1` means one group (1–4 people) per slot.
 - The group is drawn as one entry and wins or loses together. Everyone in it gets the confirmation and result emails.
-- An email address can be in only one active entry. Someone already listed as a companion can't apply separately (the backend rejects it).
+- An email address can be in only one active entry. Gmail dot and `+tag` variants count as the same address, and older rows saved before this rule are collapsed to the person's latest entry when the list is read (the Sheet isn't changed). Someone already listed as a companion can't apply separately (the backend rejects it).
 - The public results show the group as 「代表者（同行：A・B）」.
 
 ## Config (`config.json`)
