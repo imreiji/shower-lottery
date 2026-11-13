@@ -65,7 +65,7 @@ function apply_(b) {
   const slots = expandSlots(cfg.schedule);
   const slotById = Object.fromEntries(slots.map((s) => [s.id, s]));
   const n = 1 + companions.length;
-  const choices = [...new Set(Array.isArray(b.choices) ? b.choices : [])].filter((c) => runFor(c, n, slots, slotById)).slice(0, cfg.maxChoices);
+  const choices = [...new Set(Array.isArray(b.choices) ? b.choices : [])].filter((c) => slotById[c]).slice(0, cfg.maxChoices);
   if (!choices.length) return { ok: false, error: '希望枠を選択してください' };
 
   const sh = sheet_();
@@ -88,8 +88,8 @@ function apply_(b) {
   do { id = newId_(); } while (used.has(id));
   sh.appendRow([id, name, email, JSON.stringify(choices), now.toISOString(), 'active', JSON.stringify(companions)]);
 
-  const lines = choices.map((c, i) => `  第${i + 1}希望：${runLabel_(c, n, slots, slotById)}`).join('\n');
-  const partyText = companions.length ? `\n代表者：${name}\n同行者：${companions.map((c) => c.name).join('、')}（${n}名・連番）` : '';
+  const lines = choices.map((c, i) => `  第${i + 1}希望：${partyLabel_(c, n, slotById)}`).join('\n');
+  const partyText = companions.length ? `\n代表者：${name}\n同行者：${companions.map((c) => c.name).join('、')}（${n}名で1枠）` : '';
   const body = (to) => `${to} さま
 
 ${to === name ? '以下の内容で抽選申込みを受け付けました。' : `${name} さまの抽選申込みに、同行者として登録されました。`}${replaced && to === name ? '\n※同じメールアドレスの以前の申込みは無効になりました。' : ''}
@@ -134,7 +134,7 @@ function sendResults() {
     if (MailApp.getRemainingDailyQuota() < recipients.length) { console.warn('Mail quota exhausted — run sendResults again tomorrow.'); break; }
     const w = draw.won[e.id];
     const size = 1 + e.companions.length;
-    const partyText = size > 1 ? `\n代表者：${e.name}\n同行者：${e.companions.join('、')}（${size}名・連番）` : '';
+    const partyText = size > 1 ? `\n代表者：${e.name}\n同行者：${e.companions.join('、')}（${size}名で1枠）` : '';
     const subject = `【${cfg.siteName}】抽選結果のお知らせ（${w ? '当選' : '落選'}）`;
     for (const r of recipients) {
       const body = w
@@ -144,8 +144,8 @@ function sendResults() {
 
 ■ ${cfg.eventTitle}
 受付番号：${e.id}${partyText}
-ご利用枠：${runLabel_(w.slotId, size, slots, slotById)}（第${w.rank}希望）
-${size > 1 ? '\n枠の順番：\n' + w.slotIds.map((id, i) => `  ${slotById[id].start}〜${slotById[id].end}　${i === 0 ? e.name : e.companions[i - 1]}`).join('\n') + '\n' : ''}
+ご利用枠：${partyLabel_(w.slotId, size, slotById)}（第${w.rank}希望）
+
 時間厳守でご利用ください。
 ${SITE_URL}?id=${e.id}#result`
         : `${r.name} さま
@@ -192,25 +192,12 @@ function expandSlots(schedule) {
   return out;
 }
 
-function runFor(slotId, n, slots, slotById) {
-  const s = slotById[slotId];
-  if (!s) return null;
-  const run = [s];
-  for (let k = 1; k < n; k++) {
-    const prev = run[k - 1], t = slots[s.idx + k];
-    if (!t || t.date !== s.date || t.room !== s.room || t.start !== prev.end) return null;
-    run.push(t);
-  }
-  return run.map((x) => x.id);
-}
-
 function cleanEntries(raw, cfg, slots, slotById) {
   const byId = new Map();
   for (const e of raw) {
     if (!e || !e.id || !e.name || !Array.isArray(e.choices)) continue;
     const companions = (Array.isArray(e.companions) ? e.companions : []).map(String).slice(0, (cfg.maxCompanions || 0));
-    const n = 1 + companions.length;
-    const choices = [...new Set(e.choices)].filter((c) => runFor(c, n, slots, slotById)).slice(0, cfg.maxChoices);
+    const choices = [...new Set(e.choices)].filter((c) => slotById[c]).slice(0, cfg.maxChoices);
     if (!choices.length) continue;
     byId.set(e.id, { id: e.id, name: String(e.name), companions, choices, submittedAt: e.submittedAt });
   }
@@ -253,11 +240,7 @@ function runDraw(entries, cfg, slots, slotById) {
     for (const e of order) {
       if (won[e.id]) continue;
       const c = e.choices[rank];
-      const run = c && runFor(c, 1 + e.companions.length, slots, slotById);
-      if (run && run.every((id) => left[id] > 0)) {
-        run.forEach((id) => left[id]--);
-        won[e.id] = { slotId: c, slotIds: run, rank: rank + 1 };
-      }
+      if (c && left[c] > 0) { left[c]--; won[e.id] = { slotId: c, rank: rank + 1 }; }
     }
   }
   return { won };
@@ -322,11 +305,10 @@ function fmtDT_(cfg, iso) {
   return Utilities.formatDate(new Date(iso), cfg.timeZone, 'yyyy/MM/dd HH:mm');
 }
 
-function runLabel_(startId, n, slots, slotById) {
-  const run = runFor(startId, n, slots, slotById);
-  const a = slotById[run[0]], b = slotById[run[run.length - 1]];
-  const [, m, d] = a.date.split('-').map(Number);
-  return `${m}/${d} ${a.start}〜${b.end} ${a.room}` + (n > 1 ? `（${n}名・連番）` : '');
+function partyLabel_(slotId, n, slotById) {
+  const s = slotById[slotId];
+  const [, m, d] = s.date.split('-').map(Number);
+  return `${m}/${d} ${s.start}〜${s.end} ${s.room}` + (n > 1 ? `（${n}名）` : '');
 }
 
 function json_(obj) {

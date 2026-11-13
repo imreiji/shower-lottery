@@ -39,20 +39,20 @@ If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, o
 
 **Gmail quota:** about 100 emails/day on a personal account (1,500 on Workspace). Each applicant uses 2 (confirmation + result). If the quota runs out, run `sendResults` again the next day and it continues from where it stopped.
 
-## 同行者・連番 (group applications)
+## 同行者 (group applications)
 
-- The 代表者 (applicant) can add up to `maxCompanions` companions. Each needs a name and email.
-- A group of N people needs **N back-to-back slots in the same room**, starting at the chosen time. Start times without enough room for the whole group are greyed out.
-- The whole group wins or loses together. Everyone in it gets the confirmation email and the result email, and the winning email shows each person's slot.
+- The 代表者 (applicant) can add up to `maxCompanions` companions (default 4, so groups of up to 5). Each needs a name and email.
+- **The whole group shares the one slot it wins.** Slot `capacity` counts groups, not people: `capacity: 1` means one group (1–5 people) per slot.
+- The group is drawn as one entry and wins or loses together. Everyone in it gets the confirmation and result emails.
 - An email address can be in only one active entry. Someone already listed as a companion can't apply separately (the backend rejects it).
-- The public results show companions as 「名前（代表者 同行）」.
+- The public results show the group as 「代表者（同行：A・B）」.
 
 ## Config (`config.json`)
 
 - `entryOpen` / `entryClose` / `drawAt`: ISO times with an offset (`+09:00`).
-- `schedule`: blocks expanded into slots, e.g. `{ "date","room","from","to","every": 15,"capacity": 1 }`.
+- `schedule`: blocks expanded into slots, e.g. `{ "date","room","from","to","every": 15,"capacity": 1 }`. `capacity` is the number of groups per slot.
 - `maxChoices`: number of 希望 per applicant.
-- `maxCompanions`: max 同行者 per entry (`0` turns 連番 off).
+- `maxCompanions`: max 同行者 per entry (`0` turns companions off).
 - `seed`: optional extra randomness. Announce it before `drawAt` if you want. When empty, `drawAt` is used.
 - `showDemand`: shows the 第1希望 count and 倍率 per slot before the draw.
 - `publicResults`: shows the full winner table after the draw.

@@ -33,29 +33,15 @@
     return out;
   }
 
-  // A party of n (applicant + 同行者) needs n back-to-back slots in the same room, starting at the chosen slot.
-  // Keep runFor() and cleanEntries() identical to backend/Code.gs.
-  function runFor(slotId, n, slots, slotById) {
-    const s = slotById[slotId];
-    if (!s) return null;
-    const run = [s];
-    for (let k = 1; k < n; k++) {
-      const prev = run[k - 1], t = slots[s.idx + k];
-      if (!t || t.date !== s.date || t.room !== s.room || t.start !== prev.end) return null;
-      run.push(t);
-    }
-    return run.map((x) => x.id);
-  }
-
-  // Normalise entries: clamp party size, drop choices with no room for the party, de-dupe ids.
+  // Normalise entries: clamp 同行者, drop unknown slots, de-dupe ids. A whole party shares one slot.
   // (One-entry-per-email is enforced by the backend, which never exposes emails.)
+  // Keep cleanEntries() and runDraw()'s core identical to backend/Code.gs.
   function cleanEntries(raw) {
     const byId = new Map();
     for (const e of raw) {
       if (!e || !e.id || !e.name || !Array.isArray(e.choices)) continue;
       const companions = (Array.isArray(e.companions) ? e.companions : []).map(String).slice(0, (CFG.maxCompanions || 0));
-      const n = 1 + companions.length;
-      const choices = [...new Set(e.choices)].filter((c) => runFor(c, n, SLOTS, SLOT_BY_ID)).slice(0, CFG.maxChoices);
+      const choices = [...new Set(e.choices)].filter((c) => SLOT_BY_ID[c]).slice(0, CFG.maxChoices);
       if (!choices.length) continue;
       byId.set(e.id, { id: e.id, name: String(e.name), companions, choices, submittedAt: e.submittedAt });
     }
@@ -100,18 +86,14 @@
       for (const e of order) {
         if (won[e.id]) continue;
         const c = e.choices[rank];
-        const run = c && runFor(c, 1 + e.companions.length, SLOTS, SLOT_BY_ID);
-        if (run && run.every((id) => left[id] > 0)) {
-          run.forEach((id) => left[id]--);
-          won[e.id] = { slotId: c, slotIds: run, rank: rank + 1 };
-        }
+        if (c && left[c] > 0) { left[c]--; won[e.id] = { slotId: c, rank: rank + 1 }; }
       }
     }
     const winnersBySlot = {};
     for (const e of entries) {
       const w = won[e.id];
       if (!w) continue;
-      w.slotIds.forEach((id, i) => (winnersBySlot[id] ||= []).push(i === 0 ? e.name : `${e.companions[i - 1]}（${e.name} 同行）`));
+      (winnersBySlot[w.slotId] ||= []).push(e.companions.length ? `${e.name}（同行：${e.companions.join('・')}）` : e.name);
     }
     return { won, left, winnersBySlot, order: order.map((e) => e.id), seedText, seedHash: hash32(seedText).toString(16).padStart(8, '0') };
   }
@@ -130,13 +112,7 @@
     return `${m}/${dd}(${wd})`;
   };
   const slotLabel = (s) => `${fmtDate(s.date)} ${s.start}〜${s.end}　${s.room}`;
-  // Label for a party's run: "11/21(土) 07:00〜07:30　1F（2名・連番）"
-  const runLabel = (startId, n) => {
-    const run = runFor(startId, n, SLOTS, SLOT_BY_ID);
-    if (!run) return '—';
-    const a = SLOT_BY_ID[run[0]], b = SLOT_BY_ID[run[run.length - 1]];
-    return `${fmtDate(a.date)} ${a.start}〜${b.end}　${a.room}` + (n > 1 ? `（${n}名・連番）` : '');
-  };
+  const partyLabel = (slotId, n) => slotLabel(SLOT_BY_ID[slotId]) + (n > 1 ? `（${n}名）` : '');
 
   function phase() {
     const t = now();
@@ -166,12 +142,12 @@
     $('#infoVenue').textContent = CFG.venue;
     const rooms = [...new Set(SLOTS.map((s) => s.room))];
     const cap = SLOTS.reduce((a, s) => a + s.capacity, 0);
-    $('#infoSlots').textContent = `全${SLOTS.length}枠（定員計${cap}名・${rooms.join(' / ')}）`;
+    $('#infoSlots').textContent = `全${SLOTS.length}枠（計${cap}組・${rooms.join(' / ')}）`;
     $('#periodText').textContent = `${fmtDT(CFG.entryOpen)} 〜 ${fmtDT(CFG.entryClose)}`;
     $('#drawText').textContent = fmtDT(CFG.drawAt);
     $('#drawText2').textContent = fmtDT(CFG.drawAt);
     $('#maxChoicesText').textContent = CFG.maxChoices;
-    $('#renbanText').textContent = CFG.maxCompanions ? `同行者${CFG.maxCompanions}名まで（最大${CFG.maxCompanions + 1}枠連番）` : '';
+    $('#renbanText').textContent = CFG.maxCompanions ? `同行者${CFG.maxCompanions}名まで（最大${CFG.maxCompanions + 1}名で1枠）` : '';
     $('#entryCount').textContent = ENTRIES.length;
     $('#rulesList').innerHTML = (CFG.rules || []).map((r) => `<li>${esc(r)}</li>`).join('');
   }
@@ -212,7 +188,7 @@
 
   function renderSlots(ph) {
     const firstDemand = {};
-    for (const e of ENTRIES) for (const id of runFor(e.choices[0], 1 + e.companions.length, SLOTS, SLOT_BY_ID) || []) firstDemand[id] = (firstDemand[id] || 0) + 1;
+    for (const e of ENTRIES) firstDemand[e.choices[0]] = (firstDemand[e.choices[0]] || 0) + 1;
 
     $('#slotsNote').textContent = ph === 'result'
       ? '抽選後の割り当て状況です。点線の枠は空き枠です（幹事にご相談ください）。'
@@ -223,13 +199,13 @@
       const [date, room] = k.split('|');
       html += `<div class="slot-group"><div class="slot-group-head"><span>${esc(fmtDate(date))}　${esc(room)}</span><small>${list.length}枠</small></div><div class="slot-list">`;
       for (const s of list) {
-        let cls = '', meta = `定員${s.capacity}`;
+        let cls = '', meta = `${s.capacity}組`;
         if (ph === 'result') {
           const w = DRAW.winnersBySlot[s.id] || [];
           if (w.length) { cls = 'is-won'; meta = w.map(esc).join('、'); } else { cls = 'is-free'; meta = '空き'; }
         } else if (CFG.showDemand) {
           const n = firstDemand[s.id] || 0;
-          meta = `第1希望 ${n}件`;
+          meta = `第1希望 ${n}組`;
           if (n > s.capacity) { cls = 'is-hot'; meta += `（${(n / s.capacity).toFixed(1)}倍）`; }
         }
         html += `<div class="slot ${cls}"><span class="slot-time">${s.start}〜${s.end}</span><span class="slot-meta">${meta}</span></div>`;
@@ -262,7 +238,7 @@
     if (w) {
       const n = 1 + e.companions.length;
       const party = n > 1 ? `<p class="hint">同行者：${e.companions.map(esc).join('、')}</p>` : '';
-      box.innerHTML = `<div class="result-card is-win"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">当選</p><p class="r-slot">${esc(runLabel(w.slotId, n))}</p>${party}<span class="r-rank">第${w.rank}希望</span></div>`;
+      box.innerHTML = `<div class="result-card is-win"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">当選</p><p class="r-slot">${esc(partyLabel(w.slotId, n))}</p>${party}<span class="r-rank">第${w.rank}希望</span></div>`;
     } else {
       box.innerHTML = `<div class="result-card is-lose"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">落選</p><p class="hint">誠に残念ながら、ご希望の枠はご用意できませんでした。空き枠については幹事にご相談ください。</p></div>`;
     }
@@ -277,7 +253,7 @@
     const max = CFG.maxCompanions || 0;
     if (!max) { $('#partyField').hidden = true; return; }
     $('#fCount').innerHTML = Array.from({ length: max + 1 }, (_, i) =>
-      `<option value="${i + 1}">${i + 1}名${i ? `（同行者${i}名・${i + 1}枠連番）` : ''}</option>`).join('');
+      `<option value="${i + 1}">${i + 1}名${i ? `（同行者${i}名）` : '（本人のみ）'}</option>`).join('');
     $('#fCount').addEventListener('change', renderCompanions);
   }
 
@@ -300,25 +276,22 @@
   function buildChoiceFields() {
     const n = partySize();
     const prev = $$('[data-choice]').map((s) => s.value);
+    if ($$('[data-choice]').length) {
+      $('#choiceHint').textContent = n > 1 ? `同行者を含む${n}名で、選んだ1枠を一緒に利用します。グループ全員が当選または落選になります。` : '';
+      return;
+    }
     const options = ['<option value="">選択してください</option>'];
     for (const [k, list] of groupSlots()) {
       const [date, room] = k.split('|');
       options.push(`<optgroup label="${esc(fmtDate(date) + '　' + room)}">` +
-        list.map((s) => {
-          const run = runFor(s.id, n, SLOTS, SLOT_BY_ID);
-          const end = run ? SLOT_BY_ID[run[run.length - 1]].end : s.end;
-          return `<option value="${s.id}"${run ? '' : ' disabled'}>${s.start}〜${end}（${esc(room)}）${n > 1 ? `　${n}枠連番` : ''}</option>`;
-        }).join('') + '</optgroup>');
+        list.map((s) => `<option value="${s.id}">${s.start}〜${s.end}（${esc(room)}）</option>`).join('') + '</optgroup>');
     }
     let html = '';
     for (let i = 0; i < CFG.maxChoices; i++) {
       html += `<div class="field"><label for="fChoice${i}">第${i + 1}希望${i === 0 ? '<em class="req">必須</em>' : '<em class="opt">任意</em>'}</label><select id="fChoice${i}" data-choice>${options.join('')}</select></div>`;
     }
     $('#choiceFields').innerHTML = html;
-    $$('[data-choice]').forEach((sel, i) => {
-      if (prev[i] && runFor(prev[i], n, SLOTS, SLOT_BY_ID)) sel.value = prev[i];
-    });
-    $('#choiceHint').textContent = n > 1 ? `${n}名分の連続した枠（同じ場所）を、選んだ時間から確保します。グループ全員が当選または落選になります。` : '';
+    $('#choiceHint').textContent = '';
   }
 
   function setStep(n) {
@@ -368,8 +341,8 @@
     $('#confirmTable').innerHTML =
       `<tr><th>代表者</th><td>${esc(name)}<br><small>${esc(email)}</small></td></tr>` +
       companions.map((c, i) => `<tr><th>同行者 ${i + 1}</th><td>${esc(c.name)}<br><small>${esc(c.email)}</small></td></tr>`).join('') +
-      `<tr><th>申込み人数</th><td>${n}名${n > 1 ? `（${n}枠連番）` : ''}</td></tr>` +
-      picked.map((c, i) => `<tr><th>第${i + 1}希望</th><td>${esc(runLabel(c, n))}</td></tr>`).join('');
+      `<tr><th>申込み人数</th><td>${n}名${n > 1 ? '（全員同じ枠）' : ''}</td></tr>` +
+      picked.map((c, i) => `<tr><th>第${i + 1}希望</th><td>${esc(partyLabel(c, n))}</td></tr>`).join('');
     setStep(2);
   }
 
