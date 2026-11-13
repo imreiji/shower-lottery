@@ -41,8 +41,8 @@ If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, o
 
 ## 同行者 (group applications)
 
-- The 代表者 (applicant) can add up to `maxCompanions` companions (default 4, so groups of up to 5). Each needs a name and email.
-- **The whole group shares the one slot it wins.** Slot `capacity` counts groups, not people: `capacity: 1` means one group (1–5 people) per slot.
+- The 代表者 (applicant) can add up to `maxCompanions` companions (default 3, so groups of up to 4). Each needs a name and email.
+- **The whole group shares the one slot it wins.** Slot `capacity` counts groups, not people: `capacity: 1` means one group (1–4 people) per slot.
 - The group is drawn as one entry and wins or loses together. Everyone in it gets the confirmation and result emails.
 - An email address can be in only one active entry. Someone already listed as a companion can't apply separately (the backend rejects it).
 - The public results show the group as 「代表者（同行：A・B）」.
