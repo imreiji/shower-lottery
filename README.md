@@ -50,7 +50,7 @@ If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, o
 ## Config (`config.json`)
 
 - `entryOpen` / `entryClose` / `drawAt`: ISO times with an offset (`+09:00`).
-- `schedule`: blocks expanded into slots, e.g. `{ "date","room","from","to","every": 15,"capacity": 1 }`. `capacity` is the number of groups per slot.
+- `schedule`: blocks expanded into slots, e.g. `{ "date","room","from","to","every": 15,"capacity": 1 }`. `capacity` is the number of groups per slot. Times run 00:00–24:00 only, so a late night like 20:30–27:00 is two blocks: `20:30–24:00` on the first date and `00:00–03:00` on the next.
 - `maxChoices`: number of 希望 per applicant.
 - `maxCompanions`: max 同行者 per entry (`0` turns companions off).
 - `seed`: optional extra randomness. Announce it before `drawAt` if you want. When empty, `drawAt` is used.
@@ -65,7 +65,8 @@ The draw is deterministic and verifiable. Entries are shuffled with a PRNG seede
 
 ```
 python3 -m http.server
-open "http://localhost:8000/?now=2026-11-15T10:00:00%2B09:00"   # 受付中
-open "http://localhost:8000/?now=2026-11-20T10:00:00%2B09:00"   # 結果発表
+open "http://localhost:8000/?now=2026-11-13T12:00:00%2B09:00"   # 受付中
+open "http://localhost:8000/?now=2026-11-13T19:45:00%2B09:00"   # 受付終了
+open "http://localhost:8000/?now=2026-11-13T21:00:00%2B09:00"   # 結果発表
 ```
 Add `&id=SL-XXXXXX` to prefill the result lookup.
