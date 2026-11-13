@@ -1,13 +1,13 @@
 {
   "siteName": "SHOWER LOT",
   "apiUrl": "https://script.google.com/macros/s/AKfycbx1rCcXU-o3kZFj2CqsYa1sdLmQbWhRWmIN1sKyDRaD4iEeA-BVTCRcC2DsMo9SINTs/exec",
-  "eventTitle": "名古屋 2026　シャワー利用枠（11/13 夜〜11/14 昼）",
-  "eventSubtitle": "11/13 20:30〜11/14 12:00 のシャワー時間を抽選で割り当てます（1枠30分）",
+  "eventTitle": "名古屋 2026　シャワー利用枠（11/14 夜〜11/15 昼）",
+  "eventSubtitle": "11/14 20:30〜11/15 12:00 のシャワー時間を抽選で割り当てます（1枠30分）",
   "venue": "名古屋・東桜の宿 浴室（1室）",
   "timeZone": "Asia/Tokyo",
-  "entryOpen": "2026-11-13T11:30:00+09:00",
-  "entryClose": "2026-11-13T19:30:00+09:00",
-  "drawAt": "2026-11-13T20:00:00+09:00",
+  "entryOpen": "2026-11-14T08:30:00+09:00",
+  "entryClose": "2026-11-14T19:30:00+09:00",
+  "drawAt": "2026-11-14T20:00:00+09:00",
   "seed": "",
   "maxChoices": 3,
   "maxCompanions": 3,
@@ -24,7 +24,7 @@
   ],
   "schedule": [
     {
-      "date": "2026-11-13",
+      "date": "2026-11-14",
       "room": "浴室",
       "from": "20:30",
       "to": "24:00",
@@ -32,7 +32,7 @@
       "capacity": 1
     },
     {
-      "date": "2026-11-14",
+      "date": "2026-11-15",
       "room": "浴室",
       "from": "00:00",
       "to": "12:00",

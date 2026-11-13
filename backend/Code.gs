@@ -73,11 +73,12 @@ function apply_(b) {
   const sh = sheet_();
   const rows = sh.getDataRange().getValues();
   const used = new Set(rows.slice(1).map((r) => r[0]));
+  const since = new Date(cfg.entryOpen);
   // The same 代表者 re-applying replaces their entry; anyone else already in an active entry is a conflict.
   const myKey = partyKeys[0];
   const toReplace = [];
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][5] !== 'active') continue;
+    if (rows[i][5] !== 'active' || !inRound_(rows[i][4], since)) continue;
     if (emailKey_(rows[i][2]) === myKey) { toReplace.push(i + 1); continue; }
     const rowKeys = [rows[i][2], ...JSON.parse(rows[i][6] || '[]').map((c) => c.email)].map(emailKey_);
     const at = partyKeys.findIndex((k) => rowKeys.includes(k));
@@ -428,8 +429,9 @@ function sheet_() {
 }
 
 function activeRows_() {
+  const since = new Date(config_().entryOpen);
   const rows = sheet_().getDataRange().getValues().slice(1)
-    .filter((r) => r[5] === 'active')
+    .filter((r) => r[5] === 'active' && inRound_(r[4], since))
     .map((r) => {
       const companionsFull = JSON.parse(r[6] || '[]');
       return { id: r[0], name: String(r[1]), email: String(r[2]), choices: JSON.parse(r[3] || '[]'), submittedAt: r[4], companions: companionsFull.map((c) => String(c.name)), companionsFull };
@@ -454,6 +456,15 @@ function collapseDuplicates_(rows) {
     kept = [...others, { row: r, keys }];
   }
   return kept.map((k) => k.row);
+}
+
+/**
+ * Only entries submitted since this round's entryOpen take part, so the same Sheet can be reused
+ * night after night: earlier rounds' rows stay in the Sheet but are ignored.
+ */
+function inRound_(submittedAt, since) {
+  const t = new Date(submittedAt);
+  return !isNaN(t) && t >= since;
 }
 
 /** Key used to tell whether two addresses are the same person. Gmail ignores dots and +tags. */

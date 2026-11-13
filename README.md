@@ -30,7 +30,9 @@ It runs in **demo mode** until step 2 is done: it reads `entries.json`, and no a
 
 To see the four emails (applicant, 同行者, 当選, 落選) without sending anything, run **`previewEmails`** and open the log.
 
-If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, open **Deploy → Manage deployments**, edit the deployment, and pick **New version**; the URL stays the same.
+If you change `drawAt` later, run `setupTrigger` again.
+
+**Another night with the same Sheet:** update the dates in `config.json` (set `entryOpen` after the previous draw), push, then run `setupTrigger`. Only entries submitted since `entryOpen` take part; older rows stay in the Sheet but are ignored, so last night's entrants and 同行者 can enter again. If you change Code.gs, open **Deploy → Manage deployments**, edit the deployment, and pick **New version**; the URL stays the same.
 
 ### What happens
 | When | What |
