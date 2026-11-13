@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>シャワー利用枠 抽選受付</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#f16baa">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-inner">
+    <span class="topbar-note">シャワー利用枠の抽選受付サイト</span>
+    <nav class="topbar-links">
+      <a href="#result">抽選結果確認</a>
+      <a href="#rules">ご利用ガイド</a>
+    </nav>
+  </div>
+</div>
+
+<header class="header">
+  <div class="wrap header-inner">
+    <a class="logo" href="#top" aria-label="トップへ">
+      <span class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2.5c-.3 0-.6.2-.8.4C9.6 5 6 9.8 6 14a6 6 0 0 0 12 0c0-4.2-3.6-9-5.2-11.1a1 1 0 0 0-.8-.4z"/></svg>
+      </span>
+      <span class="logo-text" id="siteName">SHOWER LOT</span>
+    </a>
+    <nav class="gnav">
+      <a href="#slots">枠一覧</a>
+      <a href="#apply" data-open-apply>申込み</a>
+      <a href="#result">結果確認</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <ol class="breadcrumb">
+    <li><a href="#top">TOP</a></li>
+    <li>イベント</li>
+    <li id="crumbTitle">シャワー利用枠</li>
+  </ol>
+</div>
+
+<main class="wrap" id="top">
+  <div id="loadError" class="alert alert-error" hidden></div>
+
+  <!-- 公演詳細 -->
+  <section class="event">
+    <div class="event-head">
+      <div class="chips">
+        <span class="chip chip-genre">イベント</span>
+        <span class="chip chip-lot">抽選</span>
+        <span class="chip" id="statusChip">—</span>
+      </div>
+      <h1 class="event-title" id="eventTitle">—</h1>
+      <p class="event-sub" id="eventSub"></p>
+    </div>
+
+    <dl class="info">
+      <div><dt>日程</dt><dd id="infoDates">—</dd></div>
+      <div><dt>会場</dt><dd id="infoVenue">—</dd></div>
+      <div><dt>枠数</dt><dd id="infoSlots">—</dd></div>
+    </dl>
+  </section>
+
+  <!-- 受付情報 -->
+  <section class="sales">
+    <h2 class="sec-title">受付情報</h2>
+    <div class="sales-card">
+      <div class="sales-card-head">
+        <span class="sales-kind">一般抽選受付</span>
+        <span class="chip" id="statusChip2">—</span>
+      </div>
+      <table class="sales-table">
+        <tr><th>受付期間</th><td id="periodText">—</td></tr>
+        <tr><th>抽選結果発表</th><td id="drawText">—</td></tr>
+        <tr><th>申込み上限</th><td>お一人さま1申込み（<span id="maxChoicesText">3</span>希望まで）</td></tr>
+        <tr><th>現在の申込数</th><td><span id="entryCount">0</span>件</td></tr>
+      </table>
+      <div class="countdown" id="countdown"></div>
+      <div class="sales-actions">
+        <button class="btn btn-primary btn-lg" id="applyBtn" data-open-apply>申込む</button>
+        <a class="btn btn-outline" href="#result">抽選結果確認</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 申込みフロー -->
+  <section class="apply" id="apply" hidden>
+    <h2 class="sec-title">抽選申込み</h2>
+
+    <ol class="stepper" id="stepper">
+      <li class="is-active"><span>1</span>希望枠選択</li>
+      <li><span>2</span>内容確認</li>
+      <li><span>3</span>申込み完了</li>
+    </ol>
+
+    <!-- Step 1 -->
+    <form class="panel" id="step1" novalidate>
+      <div class="field">
+        <label for="fName">お名前（ニックネーム可）<em class="req">必須</em></label>
+        <input id="fName" type="text" maxlength="24" autocomplete="nickname" placeholder="例）たなか">
+        <p class="hint">抽選結果一覧に表示されます。</p>
+      </div>
+      <div class="field">
+        <label for="fEmail">メールアドレス<em class="req">必須</em></label>
+        <input id="fEmail" type="email" maxlength="120" autocomplete="email" placeholder="例）name@example.com">
+        <p class="hint">確認メールと抽選結果メールをお送りします。公開はされません。同じアドレスで再申込みすると、最新の申込みのみ有効です。</p>
+      </div>
+      <div id="choiceFields"></div>
+      <label class="agree">
+        <input type="checkbox" id="fAgree"> <a href="#rules">注意事項</a>に同意する
+      </label>
+      <p class="form-error" id="step1Error" role="alert"></p>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" data-close-apply>キャンセル</button>
+        <button type="submit" class="btn btn-primary">確認画面へ進む</button>
+      </div>
+    </form>
+
+    <!-- Step 2 -->
+    <div class="panel" id="step2" hidden>
+      <p class="lead">以下の内容でお申込みします。よろしければ「申込みを確定する」を押してください。</p>
+      <table class="confirm-table" id="confirmTable"></table>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" id="backBtn">戻る</button>
+        <button type="button" class="btn btn-primary" id="confirmBtn">申込みを確定する</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="panel" id="step3" hidden>
+      <div class="done-head">
+        <p class="done-title">お申込みを受け付けました</p>
+        <p>受付番号</p>
+        <p class="ticket-no" id="ticketNo">—</p>
+        <p class="hint">受付番号は抽選結果の確認に使います。控えておいてください。</p>
+      </div>
+      <div class="alert alert-info" id="doneMsg"></div>
+      <div class="form-actions form-actions-center">
+        <a class="btn btn-outline" href="#slots" id="doneTopBtn">枠一覧に戻る</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 枠一覧 -->
+  <section id="slots">
+    <h2 class="sec-title">枠一覧</h2>
+    <p class="sec-note" id="slotsNote"></p>
+    <div id="slotGrid"></div>
+  </section>
+
+  <!-- 抽選結果確認 -->
+  <section id="result">
+    <h2 class="sec-title">抽選結果確認</h2>
+    <div class="panel">
+      <div id="resultPending" class="pending">
+        <p class="pending-title">抽選結果は <strong id="drawText2">—</strong> 以降に発表します</p>
+        <p class="hint">発表までしばらくお待ちください。</p>
+      </div>
+      <div id="resultOpen" hidden>
+        <form class="lookup" id="lookupForm">
+          <label for="lookupInput" class="sr-only">受付番号またはお名前</label>
+          <input id="lookupInput" type="text" placeholder="受付番号（例 SL-4K7Q2M）またはお名前">
+          <button class="btn btn-primary" type="submit">確認する</button>
+        </form>
+        <div id="lookupResult"></div>
+        <p class="hint seed-note" id="seedNote"></p>
+      </div>
+    </div>
+    <div id="publicResults" hidden>
+      <h3 class="sub-title">当選者一覧</h3>
+      <div id="resultTable"></div>
+    </div>
+  </section>
+
+  <!-- 注意事項 -->
+  <section id="rules">
+    <h2 class="sec-title">注意事項</h2>
+    <ul class="rules" id="rulesList"></ul>
+  </section>
+</main>
+
+<a href="#top" class="pagetop" aria-label="ページトップへ">▲<br>TOP</a>
+
+<footer class="footer">
+  <div class="wrap">
+    <p>抽選はページ上で公開シードにより決定的に行われ、誰が確認しても同じ結果になります。</p>
+    <p class="copy">© <span id="year"></span> <span id="footerName">SHOWER LOT</span></p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
