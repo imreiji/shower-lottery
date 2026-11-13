@@ -27,22 +27,37 @@
       for (let m = toMin(b.from); m + b.every <= toMin(b.to); m += b.every) {
         const start = toHHMM(m);
         const id = b.date.slice(5).replace('-', '') + '-' + b.room + '-' + start.replace(':', '');
-        out.push({ id, date: b.date, room: b.room, start, end: toHHMM(m + b.every), capacity: b.capacity || 1 });
+        out.push({ idx: out.length, id, date: b.date, room: b.room, start, end: toHHMM(m + b.every), capacity: b.capacity || 1 });
       }
     }
     return out;
   }
 
-  // Normalise entries: drop unknown slots, de-dupe choices and ids.
+  // A party of n (applicant + 同行者) needs n back-to-back slots in the same room, starting at the chosen slot.
+  // Keep runFor() and cleanEntries() identical to backend/Code.gs.
+  function runFor(slotId, n, slots, slotById) {
+    const s = slotById[slotId];
+    if (!s) return null;
+    const run = [s];
+    for (let k = 1; k < n; k++) {
+      const prev = run[k - 1], t = slots[s.idx + k];
+      if (!t || t.date !== s.date || t.room !== s.room || t.start !== prev.end) return null;
+      run.push(t);
+    }
+    return run.map((x) => x.id);
+  }
+
+  // Normalise entries: clamp party size, drop choices with no room for the party, de-dupe ids.
   // (One-entry-per-email is enforced by the backend, which never exposes emails.)
-  // Keep this function identical to cleanEntries() in backend/Code.gs.
   function cleanEntries(raw) {
     const byId = new Map();
     for (const e of raw) {
       if (!e || !e.id || !e.name || !Array.isArray(e.choices)) continue;
-      const choices = [...new Set(e.choices)].filter((c) => SLOT_BY_ID[c]).slice(0, CFG.maxChoices);
+      const companions = (Array.isArray(e.companions) ? e.companions : []).map(String).slice(0, (CFG.maxCompanions || 0));
+      const n = 1 + companions.length;
+      const choices = [...new Set(e.choices)].filter((c) => runFor(c, n, SLOTS, SLOT_BY_ID)).slice(0, CFG.maxChoices);
       if (!choices.length) continue;
-      byId.set(e.id, { id: e.id, name: String(e.name), choices, submittedAt: e.submittedAt });
+      byId.set(e.id, { id: e.id, name: String(e.name), companions, choices, submittedAt: e.submittedAt });
     }
     return [...byId.values()];
   }
@@ -85,11 +100,19 @@
       for (const e of order) {
         if (won[e.id]) continue;
         const c = e.choices[rank];
-        if (c && left[c] > 0) { left[c]--; won[e.id] = { slotId: c, rank: rank + 1 }; }
+        const run = c && runFor(c, 1 + e.companions.length, SLOTS, SLOT_BY_ID);
+        if (run && run.every((id) => left[id] > 0)) {
+          run.forEach((id) => left[id]--);
+          won[e.id] = { slotId: c, slotIds: run, rank: rank + 1 };
+        }
       }
     }
     const winnersBySlot = {};
-    for (const e of entries) if (won[e.id]) (winnersBySlot[won[e.id].slotId] ||= []).push(e.name);
+    for (const e of entries) {
+      const w = won[e.id];
+      if (!w) continue;
+      w.slotIds.forEach((id, i) => (winnersBySlot[id] ||= []).push(i === 0 ? e.name : `${e.companions[i - 1]}（${e.name} 同行）`));
+    }
     return { won, left, winnersBySlot, order: order.map((e) => e.id), seedText, seedHash: hash32(seedText).toString(16).padStart(8, '0') };
   }
 
@@ -107,6 +130,13 @@
     return `${m}/${dd}(${wd})`;
   };
   const slotLabel = (s) => `${fmtDate(s.date)} ${s.start}〜${s.end}　${s.room}`;
+  // Label for a party's run: "11/21(土) 07:00〜07:30　1F（2名・連番）"
+  const runLabel = (startId, n) => {
+    const run = runFor(startId, n, SLOTS, SLOT_BY_ID);
+    if (!run) return '—';
+    const a = SLOT_BY_ID[run[0]], b = SLOT_BY_ID[run[run.length - 1]];
+    return `${fmtDate(a.date)} ${a.start}〜${b.end}　${a.room}` + (n > 1 ? `（${n}名・連番）` : '');
+  };
 
   function phase() {
     const t = now();
@@ -141,6 +171,7 @@
     $('#drawText').textContent = fmtDT(CFG.drawAt);
     $('#drawText2').textContent = fmtDT(CFG.drawAt);
     $('#maxChoicesText').textContent = CFG.maxChoices;
+    $('#renbanText').textContent = CFG.maxCompanions ? `同行者${CFG.maxCompanions}名まで（最大${CFG.maxCompanions + 1}枠連番）` : '';
     $('#entryCount').textContent = ENTRIES.length;
     $('#rulesList').innerHTML = (CFG.rules || []).map((r) => `<li>${esc(r)}</li>`).join('');
   }
@@ -181,7 +212,7 @@
 
   function renderSlots(ph) {
     const firstDemand = {};
-    for (const e of ENTRIES) firstDemand[e.choices[0]] = (firstDemand[e.choices[0]] || 0) + 1;
+    for (const e of ENTRIES) for (const id of runFor(e.choices[0], 1 + e.companions.length, SLOTS, SLOT_BY_ID) || []) firstDemand[id] = (firstDemand[id] || 0) + 1;
 
     $('#slotsNote').textContent = ph === 'result'
       ? '抽選後の割り当て状況です。点線の枠は空き枠です（幹事にご相談ください）。'
@@ -222,15 +253,16 @@
     q = q.trim();
     const box = $('#lookupResult');
     if (!q) { box.innerHTML = ''; return; }
-    const e = ENTRIES.find((x) => x.id.toUpperCase() === q.toUpperCase()) || ENTRIES.find((x) => x.name.trim().toLowerCase() === q.toLowerCase());
+    const e = ENTRIES.find((x) => x.id.toUpperCase() === q.toUpperCase()) || ENTRIES.find((x) => [x.name, ...x.companions].some((n) => n.trim().toLowerCase() === q.toLowerCase()));
     if (!e) {
       box.innerHTML = `<div class="result-card"><p class="r-label">該当する申込みが見つかりません</p><p class="hint">受付番号・お名前をご確認ください。送信されていない申込みは抽選の対象外です。</p></div>`;
       return;
     }
     const w = DRAW.won[e.id];
     if (w) {
-      const s = SLOT_BY_ID[w.slotId];
-      box.innerHTML = `<div class="result-card is-win"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">当選</p><p class="r-slot">${esc(slotLabel(s))}</p><span class="r-rank">第${w.rank}希望</span></div>`;
+      const n = 1 + e.companions.length;
+      const party = n > 1 ? `<p class="hint">同行者：${e.companions.map(esc).join('、')}</p>` : '';
+      box.innerHTML = `<div class="result-card is-win"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">当選</p><p class="r-slot">${esc(runLabel(w.slotId, n))}</p>${party}<span class="r-rank">第${w.rank}希望</span></div>`;
     } else {
       box.innerHTML = `<div class="result-card is-lose"><p class="r-label">${esc(e.name)} さま（${esc(e.id)}）</p><p class="r-status">落選</p><p class="hint">誠に残念ながら、ご希望の枠はご用意できませんでした。空き枠については幹事にご相談ください。</p></div>`;
     }
@@ -239,19 +271,54 @@
   /* ---------------- apply flow ---------------- */
   let draft = null;
 
+  const partySize = () => 1 + $$('[data-companion]').length;
+
+  function buildPartyFields() {
+    const max = CFG.maxCompanions || 0;
+    if (!max) { $('#partyField').hidden = true; return; }
+    $('#fCount').innerHTML = Array.from({ length: max + 1 }, (_, i) =>
+      `<option value="${i + 1}">${i + 1}名${i ? `（同行者${i}名・${i + 1}枠連番）` : ''}</option>`).join('');
+    $('#fCount').addEventListener('change', renderCompanions);
+  }
+
+  function renderCompanions() {
+    const n = Number($('#fCount').value) || 1;
+    const keep = $$('[data-companion]').map((el) => [el.querySelector('.c-name').value, el.querySelector('.c-email').value]);
+    let html = '';
+    for (let i = 1; i < n; i++) {
+      const [nm = '', em = ''] = keep[i - 1] || [];
+      html += `<div class="companion" data-companion>
+        <p class="companion-title">同行者 ${i}</p>
+        <div class="field"><label>お名前<em class="req">必須</em></label><input class="c-name" type="text" maxlength="24" value="${esc(nm)}"></div>
+        <div class="field"><label>メールアドレス<em class="req">必須</em></label><input class="c-email" type="email" maxlength="120" value="${esc(em)}"></div>
+      </div>`;
+    }
+    $('#companionFields').innerHTML = html;
+    buildChoiceFields();
+  }
+
   function buildChoiceFields() {
-    const groups = groupSlots();
+    const n = partySize();
+    const prev = $$('[data-choice]').map((s) => s.value);
     const options = ['<option value="">選択してください</option>'];
-    for (const [k, list] of groups) {
+    for (const [k, list] of groupSlots()) {
       const [date, room] = k.split('|');
       options.push(`<optgroup label="${esc(fmtDate(date) + '　' + room)}">` +
-        list.map((s) => `<option value="${s.id}">${s.start}〜${s.end}（${esc(room)}）</option>`).join('') + '</optgroup>');
+        list.map((s) => {
+          const run = runFor(s.id, n, SLOTS, SLOT_BY_ID);
+          const end = run ? SLOT_BY_ID[run[run.length - 1]].end : s.end;
+          return `<option value="${s.id}"${run ? '' : ' disabled'}>${s.start}〜${end}（${esc(room)}）${n > 1 ? `　${n}枠連番` : ''}</option>`;
+        }).join('') + '</optgroup>');
     }
     let html = '';
     for (let i = 0; i < CFG.maxChoices; i++) {
       html += `<div class="field"><label for="fChoice${i}">第${i + 1}希望${i === 0 ? '<em class="req">必須</em>' : '<em class="opt">任意</em>'}</label><select id="fChoice${i}" data-choice>${options.join('')}</select></div>`;
     }
     $('#choiceFields').innerHTML = html;
+    $$('[data-choice]').forEach((sel, i) => {
+      if (prev[i] && runFor(prev[i], n, SLOTS, SLOT_BY_ID)) sel.value = prev[i];
+    });
+    $('#choiceHint').textContent = n > 1 ? `${n}名分の連続した枠（同じ場所）を、選んだ時間から確保します。グループ全員が当選または落選になります。` : '';
   }
 
   function setStep(n) {
@@ -280,7 +347,15 @@
     const email = $('#fEmail').value.trim();
     const choices = $$('[data-choice]').map((s) => s.value);
     if (!name) return (err.textContent = 'お名前を入力してください。');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return (err.textContent = 'メールアドレスを正しく入力してください。');
+    const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL.test(email)) return (err.textContent = 'メールアドレスを正しく入力してください。');
+    const companions = $$('[data-companion]').map((el) => ({ name: el.querySelector('.c-name').value.trim(), email: el.querySelector('.c-email').value.trim() }));
+    for (const [i, c] of companions.entries()) {
+      if (!c.name) return (err.textContent = `同行者${i + 1}のお名前を入力してください。`);
+      if (!EMAIL.test(c.email)) return (err.textContent = `同行者${i + 1}のメールアドレスを正しく入力してください。`);
+    }
+    const allEmails = [email, ...companions.map((c) => c.email)].map((x) => x.toLowerCase());
+    if (new Set(allEmails).size !== allEmails.length) return (err.textContent = '同じメールアドレスが重複しています。同行者はそれぞれ別のアドレスを入力してください。');
     if (!choices[0]) return (err.textContent = '第1希望を選択してください。');
     const picked = choices.filter(Boolean);
     if (new Set(picked).size !== picked.length) return (err.textContent = '同じ枠が複数の希望に選ばれています。');
@@ -288,11 +363,13 @@
     if (gap !== -1) return (err.textContent = `第${gap + 1}希望を空けずに、上から順に選択してください。`);
     if (!$('#fAgree').checked) return (err.textContent = '注意事項への同意が必要です。');
     err.textContent = '';
-    draft = { name, email, choices: picked };
+    draft = { name, email, companions, choices: picked };
+    const n = 1 + companions.length;
     $('#confirmTable').innerHTML =
-      `<tr><th>お名前</th><td>${esc(name)}</td></tr>` +
-      `<tr><th>メールアドレス</th><td>${esc(email)}</td></tr>` +
-      picked.map((c, i) => `<tr><th>第${i + 1}希望</th><td>${esc(slotLabel(SLOT_BY_ID[c]))}</td></tr>`).join('');
+      `<tr><th>代表者</th><td>${esc(name)}<br><small>${esc(email)}</small></td></tr>` +
+      companions.map((c, i) => `<tr><th>同行者 ${i + 1}</th><td>${esc(c.name)}<br><small>${esc(c.email)}</small></td></tr>`).join('') +
+      `<tr><th>申込み人数</th><td>${n}名${n > 1 ? `（${n}枠連番）` : ''}</td></tr>` +
+      picked.map((c, i) => `<tr><th>第${i + 1}希望</th><td>${esc(runLabel(c, n))}</td></tr>`).join('');
     setStep(2);
   }
 
@@ -307,7 +384,7 @@
         const res = await r.json();
         if (!res.ok) throw new Error(res.error || '送信に失敗しました');
         id = res.id;
-        msg = `<strong>${esc(draft.email)}</strong> に確認メールを送信しました。届かない場合は迷惑メールフォルダをご確認ください。抽選結果も同じアドレスにお送りします。`;
+        msg = `<strong>${esc(draft.email)}</strong>${draft.companions.length ? ' と同行者の方' : ''} に確認メールを送信しました。届かない場合は迷惑メールフォルダをご確認ください。抽選結果も同じアドレスにお送りします。`;
       } else {
         id = makeId();
         msg = '<strong>デモモードです。</strong>config.json の apiUrl が未設定のため、申込みは保存されず、メールも送信されません。';
@@ -343,6 +420,7 @@
     DRAW = runDraw(ENTRIES);
 
     renderHeader();
+    buildPartyFields();
     buildChoiceFields();
     const ph = renderPhase();
     renderSlots(ph);

@@ -79,7 +79,7 @@
       <table class="sales-table">
         <tr><th>受付期間</th><td id="periodText">—</td></tr>
         <tr><th>抽選結果発表</th><td id="drawText">—</td></tr>
-        <tr><th>申込み上限</th><td>お一人さま1申込み（<span id="maxChoicesText">3</span>希望まで）</td></tr>
+        <tr><th>申込み上限</th><td>お一人さま1申込み（<span id="maxChoicesText">3</span>希望まで）<br><span id="renbanText"></span></td></tr>
         <tr><th>現在の申込数</th><td><span id="entryCount">0</span>件</td></tr>
       </table>
       <div class="countdown" id="countdown"></div>
@@ -112,7 +112,14 @@
         <input id="fEmail" type="email" maxlength="120" autocomplete="email" placeholder="例）name@example.com">
         <p class="hint">確認メールと抽選結果メールをお送りします。公開はされません。同じアドレスで再申込みすると、最新の申込みのみ有効です。</p>
       </div>
+      <div class="field" id="partyField">
+        <label for="fCount">申込み人数（連番）</label>
+        <select id="fCount"></select>
+        <p class="hint">同行者と一緒に申込むと、同じ場所の連続した枠をまとめて抽選します。同行者にも確認メール・結果メールが届きます。</p>
+      </div>
+      <div id="companionFields"></div>
       <div id="choiceFields"></div>
+      <p class="hint choice-hint" id="choiceHint"></p>
       <label class="agree">
         <input type="checkbox" id="fAgree"> <a href="#rules">注意事項</a>に同意する
       </label>
