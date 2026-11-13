@@ -28,6 +28,8 @@ It runs in **demo mode** until step 2 is done: it reads `entries.json`, and no a
 5. Copy the Web app URL (`https://script.google.com/macros/s/…/exec`) into `apiUrl` in `config.json`, then push.
 6. In the editor, choose **`setupTrigger`** and click **Run**. This creates the private Google Sheet (`SHOWER LOT entries` in your Drive) and schedules the result emails for `drawAt`.
 
+To see the four emails (applicant, 同行者, 当選, 落選) without sending anything, run **`previewEmails`** and open the log.
+
 If you change `drawAt` later, run `setupTrigger` again. If you change Code.gs, open **Deploy → Manage deployments**, edit the deployment, and pick **New version**; the URL stays the same.
 
 ### What happens

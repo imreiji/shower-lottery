@@ -88,24 +88,13 @@ function apply_(b) {
   do { id = newId_(); } while (used.has(id));
   sh.appendRow([id, name, email, JSON.stringify(choices), now.toISOString(), 'active', JSON.stringify(companions)]);
 
-  const lines = choices.map((c, i) => `  第${i + 1}希望：${partyLabel_(c, n, slotById)}`).join('\n');
-  const partyText = companions.length ? `\n代表者：${name}\n同行者：${companions.map((c) => c.name).join('、')}（${n}名で1枠）` : '';
-  const body = (to) => `${to} さま
-
-${to === name ? '以下の内容で抽選申込みを受け付けました。' : `${name} さまの抽選申込みに、同行者として登録されました。`}${replaced && to === name ? '\n※同じメールアドレスの以前の申込みは無効になりました。' : ''}
-
-■ ${cfg.eventTitle}
-受付番号：${id}${partyText}
-${lines}
-
-抽選結果発表：${fmtDT_(cfg, cfg.drawAt)}
-結果はこのメールアドレス宛にお送りします。サイトでもご確認いただけます。
-${SITE_URL}?id=${id}#result
-
-※本メールは送信専用です。`;
-  const subject = `【${cfg.siteName}】抽選申込み受付完了のお知らせ（${id}）`;
-  sendMail_(cfg, email, subject, body(name));
-  companions.forEach((c) => sendMail_(cfg, c.email, subject, body(c.name)));
+  const entry = { id, name, choices, companions: companions.map((c) => c.name) };
+  const mine = mailApplicant_(cfg, entry, slotById, replaced);
+  sendMail_(cfg, email, mine.subject, mine.body);
+  companions.forEach((c) => {
+    const m = mailCompanion_(cfg, entry, c.name, slotById);
+    sendMail_(cfg, c.email, m.subject, m.body);
+  });
 
   return { ok: true, id };
 }
@@ -133,30 +122,9 @@ function sendResults() {
     const recipients = [{ name: row.name, email: row.email }, ...row.companionsFull];
     if (MailApp.getRemainingDailyQuota() < recipients.length) { console.warn('Mail quota exhausted — run sendResults again tomorrow.'); break; }
     const w = draw.won[e.id];
-    const size = 1 + e.companions.length;
-    const partyText = size > 1 ? `\n代表者：${e.name}\n同行者：${e.companions.join('、')}（${size}名で1枠）` : '';
-    const subject = `【${cfg.siteName}】抽選結果のお知らせ（${w ? '当選' : '落選'}）`;
     for (const r of recipients) {
-      const body = w
-        ? `${r.name} さま
-
-厳正なる抽選の結果、以下の枠に【当選】されました。
-
-■ ${cfg.eventTitle}
-受付番号：${e.id}${partyText}
-ご利用枠：${partyLabel_(w.slotId, size, slotById)}（第${w.rank}希望）
-
-時間厳守でご利用ください。
-${SITE_URL}?id=${e.id}#result`
-        : `${r.name} さま
-
-厳正なる抽選の結果、誠に残念ながらご希望の枠はご用意できませんでした。
-空き枠については幹事にご相談ください。
-
-■ ${cfg.eventTitle}
-受付番号：${e.id}${partyText}
-${SITE_URL}?id=${e.id}#result`;
-      sendMail_(cfg, r.email, subject, body + '\n\n※本メールは送信専用です。');
+      const m = mailResult_(cfg, e, r.name, w, slotById);
+      sendMail_(cfg, r.email, m.subject, m.body);
     }
     sent[e.id] = true; n++;
     props.setProperty('resultsSent', JSON.stringify(sent));
@@ -175,6 +143,186 @@ function setupTrigger() {
 
 /** Clears the "already emailed" record (for testing). */
 function resetSentFlags() { PropertiesService.getScriptProperties().deleteProperty('resultsSent'); }
+
+/* ======================= Email templates (plain text) ======================= */
+
+const LINE_ = '━━━━━━━━━━━━━━━━━━━━';
+const DASH_ = '－－－－－－－－－－－－－－－－－－－－';
+const THIN_ = '────────────────────';
+const WD_ = ['月', '火', '水', '木', '金', '土', '日']; // Utilities 'u': 1 = Monday
+
+const fw_ = (s) => String(s).replace(/[0-9]/g, (d) => String.fromCharCode(d.charCodeAt(0) + 0xfee0));
+
+function header_(cfg) {
+  return `${DASH_}\n＜＜　${cfg.siteName}　INFORMATION　＞＞\n${DASH_}`;
+}
+
+function footer_(cfg) {
+  return `${DASH_}\n${cfg.siteName}\n${SITE_URL}\n${DASH_}`;
+}
+
+const NOTE_URL_ = '※メール文章中のURLをタップしてもページをご覧いただけない場合は、URLをコピーしてブラウザのアドレス欄に貼り付けてください。';
+const NOTE_NOREPLY_ = '※このメールアドレスは配信専用となっております。本メールに返信していただきましても、ご質問・ご依頼などにはお答えできませんので、あらかじめご了承ください。';
+const NOTE_CONTACT_ = '※お問合せは幹事まで直接ご連絡ください。';
+
+function slotWhen_(cfg, s) {
+  const [, m, d] = s.date.split('-').map(Number);
+  const wd = WD_[Number(Utilities.formatDate(new Date(s.date + 'T12:00:00Z'), 'UTC', 'u')) - 1];
+  return `${m}/${d}(${wd}) ${s.start}〜${s.end}`;
+}
+
+function choiceBlock_(cfg, slotId, rank, size, slotById, result) {
+  const s = slotById[slotId];
+  return `＜第${fw_(rank)}希望＞\n` +
+    (result ? `　抽選結果　　：　${result}\n` : '') +
+    `　利用日時　　：　${slotWhen_(cfg, s)}\n` +
+    `　場所・人数　：　${s.room} ×${size}名`;
+}
+
+function summary_(cfg, e) {
+  const size = 1 + e.companions.length;
+  return `受付番号　　：　${e.id}\n` +
+    `イベント名　：　${cfg.eventTitle}\n` +
+    `会場名　　　：　${cfg.venue}\n` +
+    (size > 1 ? `申込み人数　：　${size}名（申込者：${e.name}様／同行者：${e.companions.map((c) => c + '様').join('、')}）\n` : '');
+}
+
+function drawLine_(cfg) {
+  return `［抽選結果発表　：　${fmtDT_(cfg, cfg.drawAt)}］`;
+}
+
+/** 申込み完了 (applicant) */
+function mailApplicant_(cfg, e, slotById, replaced) {
+  const size = 1 + e.companions.length;
+  const subject = `【${cfg.siteName}】《必ずご確認ください》申込み完了・抽選結果発表のご案内`;
+  const body = `${header_(cfg)}
+＜${cfg.eventTitle}＞抽選受付
+${cfg.siteName} をご利用いただきまして、誠にありがとうございます。
+${e.name}様の抽選申込みを下記の内容で受付けました。
+お申込み多数の場合は抽選とさせていただきます。${replaced ? '\n※同じメールアドレスでの以前のお申込みは無効になりました。' : ''}
+
+${drawLine_(cfg)}
+
+抽選結果は発表時刻以降、このメールアドレス宛にお送りします。
+下記のページでもご確認いただけます。
+${SITE_URL}?id=${e.id}#result
+
+${LINE_}
+${summary_(cfg, e)}${e.choices.map((c, i) => choiceBlock_(cfg, c, i + 1, size, slotById)).join('\n')}
+${LINE_}
+＜注意事項＞
+※お申込み内容は、受付期間中（${fmtDT_(cfg, cfg.entryClose)}まで）のみ変更可能です。同じメールアドレスで再度お申込みいただくと、最新のお申込みのみが有効になります。受付期間終了後は、申込み内容の変更や取消しはできません。
+※当選した場合、ご利用時間は厳守してください。
+${NOTE_URL_}
+${NOTE_NOREPLY_}
+${NOTE_CONTACT_}
+${footer_(cfg)}`;
+  return { subject, body };
+}
+
+/** 申込み完了 (companion) */
+function mailCompanion_(cfg, e, toName, slotById) {
+  const size = 1 + e.companions.length;
+  const subject = `【${cfg.siteName}】申込み完了のご案内（同行者の方へ）`;
+  const body = `${THIN_}
+＜　申込み完了・抽選結果発表のご案内　＞
+${THIN_}
+＜${cfg.eventTitle}＞抽選受付
+${cfg.siteName} をご利用いただきまして、誠にありがとうございます。
+${toName}様は、${e.name}様のお申込みに同行者として登録されました。
+お申込みを下記の内容にて承りましたのでご確認ください。
+
+${drawLine_(cfg)}
+
+${LINE_}
+申込内容
+${summary_(cfg, e)}${e.choices.map((c, i) => choiceBlock_(cfg, c, i + 1, size, slotById)).join('\n')}
+
+申込者情報
+氏名　　　　　：${e.name}様
+${LINE_}
+＜注意事項＞
+※お申込みいただいた内容の変更は申込者様のみ行えます。
+※抽選結果は、同行者様にもこのメールアドレス宛にお送りします。グループ全員で同じ1枠を利用し、全員が当選または落選となります。
+※同行者として登録された方は、ご自身で別にお申込みいただくことはできません。
+※抽選結果は発表時刻以降、下記のページでもご確認いただけます。
+${SITE_URL}?id=${e.id}#result
+${NOTE_URL_}
+${NOTE_NOREPLY_}
+${NOTE_CONTACT_}
+${footer_(cfg)}`;
+  return { subject, body };
+}
+
+/** 当選 / 落選 — sent to the applicant and to each companion */
+function mailResult_(cfg, e, toName, w, slotById) {
+  const size = 1 + e.companions.length;
+  const isApplicant = toName === e.name;
+  const whose = isApplicant ? `${toName}様にお申込みいただいた` : `${toName}様が同行者として登録されたお申込み（申込者：${e.name}様）の`;
+  if (w) {
+    const s = slotById[w.slotId];
+    const members = [e.name, ...e.companions].map((x) => x + '様').join('、');
+    return {
+      subject: `【${cfg.siteName}】当選のご案内`,
+      body: `${header_(cfg)}
+${cfg.siteName} をご利用いただきまして、誠にありがとうございます。
+${whose}枠を下記の内容にてご用意いたしました。
+内容をご確認の上、時間厳守でご利用ください。
+
+${LINE_}
+${summary_(cfg, e)}${choiceBlock_(cfg, w.slotId, w.rank, size, slotById, '当選')}
+${LINE_}
+【重要】ご利用時間のご案内
+　ご利用時間　：　${slotWhen_(cfg, s)}（${minutes_(s)}分）
+　場所　　　　：　${s.room}
+　ご利用者　　：　${members}（計${size}名）
+　※次の方の枠に食い込まないよう、終了時刻までにご退室ください。
+${LINE_}
+＜注意事項＞
+※お申込みいただいた内容の変更や取消しはできません。枠の交換・譲渡は、双方の合意の上で幹事にご連絡ください。
+※抽選結果は下記のページでもご確認いただけます。
+${SITE_URL}?id=${e.id}#result
+${NOTE_URL_}
+${NOTE_NOREPLY_}
+${NOTE_CONTACT_}
+${footer_(cfg)}`,
+    };
+  }
+  return {
+    subject: `【${cfg.siteName}】抽選結果のご案内`,
+    body: `${header_(cfg)}
+${cfg.siteName} をご利用いただきまして、誠にありがとうございます。
+${isApplicant ? `${toName}様の下記申込み` : `${toName}様が同行者として登録された下記申込み（申込者：${e.name}様）`}については、抽選の結果、枠を
+ご用意することができませんでした。
+
+${summary_(cfg, e)}${LINE_}
+空き枠については幹事にご相談ください。
+これからも ${cfg.siteName} をよろしくお願いします。
+${NOTE_NOREPLY_}
+${NOTE_CONTACT_}
+${footer_(cfg)}`,
+  };
+}
+
+function minutes_(s) {
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  return ((toMin(s.end) - toMin(s.start)) + 1440) % 1440;
+}
+
+/** Run from the editor to see all four emails in the log (nothing is sent). */
+function previewEmails() {
+  const cfg = config_();
+  const slots = expandSlots(cfg.schedule);
+  const slotById = Object.fromEntries(slots.map((s) => [s.id, s]));
+  const e = { id: 'SL-PREVIEW', name: 'たなか', companions: ['すずき'], choices: slots.slice(0, 3).map((s) => s.id) };
+  const mails = [
+    mailApplicant_(cfg, e, slotById, false),
+    mailCompanion_(cfg, e, 'すずき', slotById),
+    mailResult_(cfg, e, 'たなか', { slotId: e.choices[1], rank: 2 }, slotById),
+    mailResult_(cfg, e, 'すずき', null, slotById),
+  ];
+  mails.forEach((m) => console.log(`件名：${m.subject}\n\n${m.body}\n`));
+}
 
 /* ======================= Lottery (keep in sync with app.js) ======================= */
 
@@ -302,13 +450,9 @@ function sendMail_(cfg, to, subject, body) {
 }
 
 function fmtDT_(cfg, iso) {
-  return Utilities.formatDate(new Date(iso), cfg.timeZone, 'yyyy/MM/dd HH:mm');
-}
-
-function partyLabel_(slotId, n, slotById) {
-  const s = slotById[slotId];
-  const [, m, d] = s.date.split('-').map(Number);
-  return `${m}/${d} ${s.start}〜${s.end} ${s.room}` + (n > 1 ? `（${n}名）` : '');
+  const d = new Date(iso);
+  const wd = WD_[Number(Utilities.formatDate(d, cfg.timeZone, 'u')) - 1];
+  return `${Utilities.formatDate(d, cfg.timeZone, 'yyyy/MM/dd')}(${wd})　${Utilities.formatDate(d, cfg.timeZone, 'HH:mm')}`;
 }
 
 function json_(obj) {
